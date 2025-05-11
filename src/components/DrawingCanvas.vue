@@ -349,6 +349,33 @@
       ctx.value.moveTo(start.x, start.y)
       ctx.value.lineTo(end.x, end.y)
       ctx.value.stroke()
+    } else if (element.type === 'freehand') {
+      // 绘制铅笔线条
+      const points = element.points
+      if (points.length < 2) return
+
+      ctx.value.beginPath()
+      ctx.value.moveTo(points[0].x, points[0].y)
+
+      // 使用二次贝塞尔曲线使线条更平滑
+      for (let i = 1; i < points.length - 2; i++) {
+        const xc = (points[i].x + points[i + 1].x) / 2
+        const yc = (points[i].y + points[i + 1].y) / 2
+        ctx.value.quadraticCurveTo(points[i].x, points[i].y, xc, yc)
+      }
+
+      // 处理最后两个点
+      if (points.length > 2) {
+        const lastPoint = points[points.length - 1]
+        const secondLastPoint = points[points.length - 2]
+        ctx.value.quadraticCurveTo(secondLastPoint.x, secondLastPoint.y, lastPoint.x, lastPoint.y)
+      } else {
+        // 如果只有两个点，直接画直线
+        const lastPoint = points[points.length - 1]
+        ctx.value.lineTo(lastPoint.x, lastPoint.y)
+      }
+
+      ctx.value.stroke()
     }
     ctx.value.restore()
   }
@@ -401,13 +428,53 @@
     if (element.type === 'freehand') return // 铅笔选中时不绘制选择框和锚点
 
     const [start, end] = element.points
+    const rotation = element.rotation || 0
+
+    if (element.type === 'line') {
+      // 直线只需要两个端点的锚点
+      const points = [start, end]
+
+      ctx.value.save()
+      // 绘制浅蓝色细实线外框
+      ctx.value.strokeStyle = '#42a5f5'
+      ctx.value.lineWidth = 1.5
+      ctx.value.beginPath()
+      ctx.value.moveTo(start.x, start.y)
+      ctx.value.lineTo(end.x, end.y)
+      ctx.value.stroke()
+
+      // 绘制端点锚点
+      points.forEach((pt, idx) => {
+        if (!ctx.value) return
+        ctx.value.save()
+        ctx.value.beginPath()
+        // 悬停时加粗并改变颜色
+        ctx.value.lineWidth = hoverAnchor.value === idx ? 3 : 2
+        ctx.value.strokeStyle = hoverAnchor.value === idx ? '#1976d2' : '#42a5f5'
+        ctx.value.fillStyle = hoverAnchor.value === idx ? '#bbdefb' : '#fff'
+
+        // 绘制方形锚点
+        if (ctx.value.roundRect) {
+          ctx.value.roundRect(pt.x - 4, pt.y - 4, 8, 8, 2)
+        } else {
+          ctx.value.rect(pt.x - 4, pt.y - 4, 8, 8)
+        }
+
+        ctx.value.fill()
+        ctx.value.stroke()
+        ctx.value.restore()
+      })
+
+      ctx.value.restore()
+      return
+    }
+
     const minX = Math.min(start.x, end.x)
     const maxX = Math.max(start.x, end.x)
     const minY = Math.min(start.y, end.y)
     const maxY = Math.max(start.y, end.y)
     const centerX = (minX + maxX) / 2
     const centerY = (minY + maxY) / 2
-    const rotation = element.rotation || 0
 
     // 计算所有锚点的位置（考虑8px的padding）
     const anchors = [
@@ -504,13 +571,28 @@
    */
   function hitAnchorPoint(point: Point, element: DrawingElement) {
     const [start, end] = element.points
+    const rotation = element.rotation || 0
+
+    if (element.type === 'line') {
+      // 直线只检测两个端点
+      const points = [start, end]
+      for (let i = 0; i < points.length; i++) {
+        const pt = points[i]
+        const dx = point.x - pt.x
+        const dy = point.y - pt.y
+        if (Math.abs(dx) <= 6 && Math.abs(dy) <= 6) {
+          return i
+        }
+      }
+      return null
+    }
+
     const minX = Math.min(start.x, end.x)
     const maxX = Math.max(start.x, end.x)
     const minY = Math.min(start.y, end.y)
     const maxY = Math.max(start.y, end.y)
     const centerX = (minX + maxX) / 2
     const centerY = (minY + maxY) / 2
-    const rotation = element.rotation || 0
 
     // 计算所有锚点的位置
     const anchors = [
@@ -941,17 +1023,41 @@
    * @param to 鼠标当前位置
    */
   function resizeElementWithRotation(element: DrawingElement, anchorIdx: number, to: Point) {
-    if (!['rectangle', 'ellipse', 'diamond', 'text'].includes(element.type)) {
-      // 对于线条等其他图形，暂不支持旋转+缩放的组合操作
-      resizeElement(element, anchorIdx, to)
+    if (element.type === 'line') {
+      const [start, end] = element.points
+      const rotation = element.rotation || 0
+      const centerX = (start.x + end.x) / 2
+      const centerY = (start.y + end.y) / 2
+
+      // 如果有旋转，需要在旋转的坐标系中处理
+      if (rotation !== 0) {
+        // 将鼠标位置转换到未旋转的坐标系
+        const unrotatedPoint = unrotatePoint(to.x, to.y, centerX, centerY, rotation)
+        // 移动对应的端点
+        if (anchorIdx === 0) {
+          element.points[0] = unrotatedPoint
+        } else {
+          element.points[1] = unrotatedPoint
+        }
+      } else {
+        // 没有旋转时直接移动端点
+        if (anchorIdx === 0) {
+          element.points[0] = to
+        } else {
+          element.points[1] = to
+        }
+      }
       return
     }
 
+    // 其他图形的缩放逻辑
     const [start, end] = element.points
     const minX = Math.min(start.x, end.x)
     const maxX = Math.max(start.x, end.x)
     const minY = Math.min(start.y, end.y)
     const maxY = Math.max(start.y, end.y)
+    const width = maxX - minX
+    const height = maxY - minY
     const centerX = (minX + maxX) / 2
     const centerY = (minY + maxY) / 2
     const rotation = element.rotation || 0
