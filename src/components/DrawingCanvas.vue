@@ -425,7 +425,6 @@
    */
   const drawAnchors = (element: DrawingElement) => {
     if (!ctx.value) return
-    if (element.type === 'freehand') return // 铅笔选中时不绘制选择框和锚点
 
     const [start, end] = element.points
     const rotation = element.rotation || 0
@@ -464,6 +463,88 @@
         ctx.value.stroke()
         ctx.value.restore()
       })
+
+      ctx.value.restore()
+      return
+    }
+
+    if (element.type === 'freehand') {
+      // 计算铅笔线条的包围盒
+      let minX = Infinity,
+        maxX = -Infinity,
+        minY = Infinity,
+        maxY = -Infinity
+      element.points.forEach(pt => {
+        minX = Math.min(minX, pt.x)
+        maxX = Math.max(maxX, pt.x)
+        minY = Math.min(minY, pt.y)
+        maxY = Math.max(maxY, pt.y)
+      })
+
+      const centerX = (minX + maxX) / 2
+      const centerY = (minY + maxY) / 2
+
+      // 计算所有锚点的位置
+      const anchors = [
+        rotatePoint(minX, minY, centerX, centerY, rotation), // 左上
+        rotatePoint(centerX, minY, centerX, centerY, rotation), // 上中
+        rotatePoint(maxX, minY, centerX, centerY, rotation), // 右上
+        rotatePoint(maxX, centerY, centerX, centerY, rotation), // 右中
+        rotatePoint(maxX, maxY, centerX, centerY, rotation), // 右下
+        rotatePoint(centerX, maxY, centerX, centerY, rotation), // 下中
+        rotatePoint(minX, maxY, centerX, centerY, rotation), // 左下
+        rotatePoint(minX, centerY, centerX, centerY, rotation) // 左中
+      ]
+
+      ctx.value.save()
+      // 绘制浅蓝色细实线外框
+      ctx.value.strokeStyle = '#42a5f5'
+      ctx.value.lineWidth = 1.5
+      ctx.value.beginPath()
+      ctx.value.moveTo(anchors[0].x, anchors[0].y)
+      for (let i = 2; i <= 6; i += 2) {
+        ctx.value.lineTo(anchors[i].x, anchors[i].y)
+      }
+      ctx.value.closePath()
+      ctx.value.stroke()
+
+      // 绘制锚点
+      anchors.forEach((pt, idx) => {
+        if (!ctx.value) return
+        ctx.value.save()
+        ctx.value.beginPath()
+        // 悬停时加粗并改变颜色
+        ctx.value.lineWidth = hoverAnchor.value === idx ? 3 : 2
+        ctx.value.strokeStyle = hoverAnchor.value === idx ? '#1976d2' : '#42a5f5'
+        ctx.value.fillStyle = hoverAnchor.value === idx ? '#bbdefb' : '#fff'
+
+        // 角点使用方形，边缘点使用圆形
+        if (idx % 2 === 0) {
+          // 绘制方形锚点
+          if (ctx.value.roundRect) {
+            ctx.value.roundRect(pt.x - 4, pt.y - 4, 8, 8, 2)
+          } else {
+            ctx.value.rect(pt.x - 4, pt.y - 4, 8, 8)
+          }
+        } else {
+          // 绘制圆形锚点
+          ctx.value.arc(pt.x, pt.y, 4, 0, Math.PI * 2)
+        }
+
+        ctx.value.fill()
+        ctx.value.stroke()
+        ctx.value.restore()
+      })
+
+      // 绘制顶部中点的旋转锚点
+      const topCenter = rotatePoint(centerX, minY - 24, centerX, centerY, rotation)
+      ctx.value.beginPath()
+      ctx.value.arc(topCenter.x, topCenter.y, 7, 0, Math.PI * 2)
+      ctx.value.fillStyle = '#fff'
+      ctx.value.strokeStyle = '#42a5f5'
+      ctx.value.lineWidth = 1.5
+      ctx.value.fill()
+      ctx.value.stroke()
 
       ctx.value.restore()
       return
@@ -548,6 +629,32 @@
    * @returns 是否命中旋转锚点
    */
   function isOnRotateAnchor(point: Point, element: DrawingElement) {
+    if (element.type === 'freehand') {
+      // 计算铅笔线条的包围盒
+      let minX = Infinity,
+        maxX = -Infinity,
+        minY = Infinity,
+        maxY = -Infinity
+      element.points.forEach(pt => {
+        minX = Math.min(minX, pt.x)
+        maxX = Math.max(maxX, pt.x)
+        minY = Math.min(minY, pt.y)
+        maxY = Math.max(maxY, pt.y)
+      })
+
+      const centerX = (minX + maxX) / 2
+      const centerY = (minY + maxY) / 2
+      const rotation = element.rotation || 0
+
+      // 计算旋转锚点的位置
+      const topCenter = rotatePoint(centerX, minY - 24, centerX, centerY, rotation)
+
+      // 计算鼠标点击位置到旋转锚点的距离
+      const dx = point.x - topCenter.x
+      const dy = point.y - topCenter.y
+      return Math.sqrt(dx * dx + dy * dy) <= 10 // 增加判定区域
+    }
+
     const [start, end] = element.points
     const minY = Math.min(start.y, end.y)
     const centerX = (start.x + end.x) / 2
@@ -570,6 +677,60 @@
    * @returns 命中的锚点索引，未命中返回null
    */
   function hitAnchorPoint(point: Point, element: DrawingElement) {
+    if (element.type === 'freehand') {
+      // 计算铅笔线条的包围盒
+      let minX = Infinity,
+        maxX = -Infinity,
+        minY = Infinity,
+        maxY = -Infinity
+      element.points.forEach(pt => {
+        minX = Math.min(minX, pt.x)
+        maxX = Math.max(maxX, pt.x)
+        minY = Math.min(minY, pt.y)
+        maxY = Math.max(maxY, pt.y)
+      })
+
+      const centerX = (minX + maxX) / 2
+      const centerY = (minY + maxY) / 2
+      const rotation = element.rotation || 0
+
+      // 计算所有锚点的位置
+      const anchors = [
+        rotatePoint(minX, minY, centerX, centerY, rotation), // 左上
+        rotatePoint(centerX, minY, centerX, centerY, rotation), // 上中
+        rotatePoint(maxX, minY, centerX, centerY, rotation), // 右上
+        rotatePoint(maxX, centerY, centerX, centerY, rotation), // 右中
+        rotatePoint(maxX, maxY, centerX, centerY, rotation), // 右下
+        rotatePoint(centerX, maxY, centerX, centerY, rotation), // 下中
+        rotatePoint(minX, maxY, centerX, centerY, rotation), // 左下
+        rotatePoint(minX, centerY, centerX, centerY, rotation) // 左中
+      ]
+
+      // 检查每个锚点
+      for (let i = 0; i < anchors.length; i++) {
+        const anchor = anchors[i]
+        const dx = point.x - anchor.x
+        const dy = point.y - anchor.y
+        const distance = Math.sqrt(dx * dx + dy * dy)
+        if (distance <= 8) {
+          // 统一使用圆形判定区域，增加容差
+          return i
+        }
+      }
+
+      // 检查旋转锚点
+      const topCenter = rotatePoint(centerX, minY - 24, centerX, centerY, rotation)
+      const rotateAnchorDx = point.x - topCenter.x
+      const rotateAnchorDy = point.y - topCenter.y
+      const rotateAnchorDistance = Math.sqrt(rotateAnchorDx * rotateAnchorDx + rotateAnchorDy * rotateAnchorDy)
+      if (rotateAnchorDistance <= 10) {
+        // 旋转锚点使用更大的判定区域
+        return -1 // 特殊值表示旋转锚点
+      }
+
+      return null
+    }
+
     const [start, end] = element.points
     const rotation = element.rotation || 0
 
@@ -811,6 +972,39 @@
    * @returns 点是否在图形内部
    */
   function hitTestPointInElement(point: Point, element: DrawingElement) {
+    if (element.type === 'freehand') {
+      // 计算铅笔线条的包围盒
+      let minX = Infinity,
+        maxX = -Infinity,
+        minY = Infinity,
+        maxY = -Infinity
+      element.points.forEach(pt => {
+        minX = Math.min(minX, pt.x)
+        maxX = Math.max(maxX, pt.x)
+        minY = Math.min(minY, pt.y)
+        maxY = Math.max(maxY, pt.y)
+      })
+
+      const centerX = (minX + maxX) / 2
+      const centerY = (minY + maxY) / 2
+      const rotation = element.rotation || 0
+
+      // 如果有旋转，先将点反向旋转到元素的坐标系中
+      let testPoint = point
+      if (rotation !== 0) {
+        testPoint = unrotatePoint(point.x, point.y, centerX, centerY, rotation)
+      }
+
+      // 检查点是否在包围盒内，增加一定的容差
+      const tolerance = 8 // 增加点击容差
+      return (
+        testPoint.x >= minX - tolerance &&
+        testPoint.x <= maxX + tolerance &&
+        testPoint.y >= minY - tolerance &&
+        testPoint.y <= maxY + tolerance
+      )
+    }
+
     // 考虑元素的旋转角度
     const rotation = element.rotation || 0
     const [start, end] = element.points
@@ -871,52 +1065,6 @@
             lineEnd.y * lineStart.x
         ) / Math.sqrt((lineEnd.y - lineStart.y) ** 2 + (lineEnd.x - lineStart.x) ** 2)
       return dist < 8 // 距离阈值为8像素
-    } else if (element.type === 'freehand') {
-      // 自由绘制:检查点到所有线段的最短距离
-      // 由于freehand是多点曲线，旋转处理更复杂，这里暂时以简化方式处理
-      const pts = element.points
-      let rotatedPts = pts
-
-      // 如果有旋转，计算旋转后的所有点
-      if (rotation !== 0) {
-        rotatedPts = pts.map(pt => rotatePoint(pt.x, pt.y, centerX, centerY, rotation))
-        // 对于自由绘制曲线，使用原始点进行测试
-        testPoint = point
-      }
-
-      for (let i = 0; i < rotatedPts.length - 1; i++) {
-        const a = rotatedPts[i] // 当前线段起点
-        const b = rotatedPts[i + 1] // 当前线段终点
-        // 计算点到线段的投影
-        const A = testPoint.x - a.x
-        const B = testPoint.y - a.y
-        const C = b.x - a.x
-        const D = b.y - a.y
-        const dot = A * C + B * D
-        const len_sq = C * C + D * D
-        let param = -1
-        if (len_sq !== 0) param = dot / len_sq
-        // 计算点到线段的最近点
-        let xx, yy
-        if (param < 0) {
-          // 投影在线段外部(起点侧)
-          xx = a.x
-          yy = a.y
-        } else if (param > 1) {
-          // 投影在线段外部(终点侧)
-          xx = b.x
-          yy = b.y
-        } else {
-          // 投影在线段内部
-          xx = a.x + param * C
-          yy = a.y + param * D
-        }
-        // 计算点到最近点的距离
-        const dx = testPoint.x - xx
-        const dy = testPoint.y - yy
-        if (Math.sqrt(dx * dx + dy * dy) < 8) return true // 距离小于8像素则命中
-      }
-      return false
     }
     return false
   }
@@ -945,14 +1093,71 @@
     if (rotating.value && selectedIds.value.length === 1) {
       const selected = selectedElements.value[0]
       if (selected) {
-        // 计算旋转中心点
-        const [start, end] = selected.points
-        const centerX = (start.x + end.x) / 2
-        const centerY = (start.y + end.y) / 2
-        // 计算当前鼠标位置与中心点的角度
-        const angle = Math.atan2(point.y - centerY, point.x - centerX)
-        // 更新元素旋转角度
-        selected.rotation = rotateStartRotation.value + (angle - rotateStartAngle.value)
+        if (selected.type === 'freehand') {
+          // 计算铅笔线条的包围盒
+          let minX = Infinity,
+            maxX = -Infinity,
+            minY = Infinity,
+            maxY = -Infinity
+          selected.points.forEach(pt => {
+            minX = Math.min(minX, pt.x)
+            maxX = Math.max(maxX, pt.x)
+            minY = Math.min(minY, pt.y)
+            maxY = Math.max(maxY, pt.y)
+          })
+
+          const centerX = (minX + maxX) / 2
+          const centerY = (minY + maxY) / 2
+
+          // 计算当前鼠标位置与中心点的角度
+          const currentAngle = Math.atan2(point.y - centerY, point.x - centerX)
+
+          // 计算角度差，并减小旋转速度
+          const rotationSpeed = 0.5 // 降低旋转速度
+          let deltaAngle = (currentAngle - rotateStartAngle.value) * rotationSpeed
+
+          // 计算新的旋转角度
+          const newRotation = rotateStartRotation.value + deltaAngle
+
+          // 如果旋转角度发生变化
+          if (Math.abs((selected.rotation || 0) - newRotation) > 0.001) {
+            // 添加阈值，避免微小变化
+            // 保存当前所有点的原始位置（相对于旋转中心）
+            const originalPoints = selected.points.map(pt => ({
+              x: pt.x - centerX,
+              y: pt.y - centerY
+            }))
+
+            // 计算从初始状态到目标角度的单次旋转
+            const cos = Math.cos(deltaAngle)
+            const sin = Math.sin(deltaAngle)
+
+            // 应用旋转变换
+            selected.points = originalPoints.map(pt => ({
+              x: centerX + (pt.x * cos - pt.y * sin),
+              y: centerY + (pt.x * sin + pt.y * cos)
+            }))
+
+            // 更新元素的旋转角度
+            selected.rotation = newRotation
+          }
+        } else {
+          // 其他图形的旋转逻辑
+          const [start, end] = selected.points
+          const centerX = (start.x + end.x) / 2
+          const centerY = (start.y + end.y) / 2
+
+          // 计算当前鼠标位置与中心点的角度
+          const currentAngle = Math.atan2(point.y - centerY, point.x - centerX)
+
+          // 使用相同的旋转速度系数
+          const rotationSpeed = 0.5
+          const deltaAngle = (currentAngle - rotateStartAngle.value) * rotationSpeed
+
+          // 更新元素旋转角度
+          selected.rotation = rotateStartRotation.value + deltaAngle
+        }
+
         redrawCanvas()
       }
       return
@@ -1047,6 +1252,74 @@
           element.points[1] = to
         }
       }
+      return
+    }
+
+    if (element.type === 'freehand') {
+      // 计算铅笔线条的包围盒
+      let minX = Infinity,
+        maxX = -Infinity,
+        minY = Infinity,
+        maxY = -Infinity
+      element.points.forEach(pt => {
+        minX = Math.min(minX, pt.x)
+        maxX = Math.max(maxX, pt.x)
+        minY = Math.min(minY, pt.y)
+        maxY = Math.max(maxY, pt.y)
+      })
+
+      const width = maxX - minX
+      const height = maxY - minY
+      const centerX = (minX + maxX) / 2
+      const centerY = (minY + maxY) / 2
+      const rotation = element.rotation || 0
+
+      // 如果有旋转，需要在旋转的坐标系中处理
+      let unrotatedPoint = to
+      if (rotation !== 0) {
+        unrotatedPoint = unrotatePoint(to.x, to.y, centerX, centerY, rotation)
+      }
+
+      // 计算缩放比例
+      let scaleX = 1,
+        scaleY = 1
+      const oppositeAnchorIdx = (anchorIdx + 4) % 8
+
+      // 根据锚点位置计算缩放方向
+      if (anchorIdx === 0 || anchorIdx === 2 || anchorIdx === 4 || anchorIdx === 6) {
+        // 角点 - 等比例缩放
+        const originalDiagonal = Math.sqrt(width * width + height * height)
+        const newDx = unrotatedPoint.x - centerX
+        const newDy = unrotatedPoint.y - centerY
+        const newDiagonal = Math.sqrt(newDx * newDx + newDy * newDy) * 2
+        scaleX = scaleY = newDiagonal / originalDiagonal
+      } else if (anchorIdx === 1 || anchorIdx === 5) {
+        // 上下中点 - 垂直缩放
+        const originalHeight = height
+        const newHeight = Math.abs(unrotatedPoint.y - centerY) * 2
+        scaleY = newHeight / originalHeight
+      } else {
+        // 左右中点 - 水平缩放
+        const originalWidth = width
+        const newWidth = Math.abs(unrotatedPoint.x - centerX) * 2
+        scaleX = newWidth / originalWidth
+      }
+
+      // 应用缩放
+      element.points = element.points.map(pt => {
+        // 将点转换到相对于中心点的坐标
+        const relativeX = pt.x - centerX
+        const relativeY = pt.y - centerY
+        // 应用缩放
+        const scaledX = relativeX * scaleX
+        const scaledY = relativeY * scaleY
+        // 转换回绝对坐标
+        return {
+          x: centerX + scaledX,
+          y: centerY + scaledY
+        }
+      })
+
       return
     }
 
